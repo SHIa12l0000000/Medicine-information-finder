@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="hi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>MediLookup — Single File</title>
+  <style>
+    :root{--bg:#f7f9fc;--card:#fff;--muted:#666;--accent:#1565c0}
+    *{box-sizing:border-box;font-family:Inter,system-ui,Arial, sans-serif}
+    body{margin:0;background:var(--bg);color:#111}
+    .wrap{max-width:920px;margin:28px auto;padding:20px}
+    header{display:flex;align-items:center;gap:12px}
+    h1{margin:0;font-size:20px}
+    .search{display:flex;gap:8px;margin-top:14px}
+    input[type="search"]{flex:1;padding:12px;border-radius:8px;border:1px solid #ddd;font-size:15px}
+    button{padding:10px 14px;border-radius:8px;border:0;background:var(--accent);color:#fff;font-weight:600;cursor:pointer}
+    .row{display:flex;gap:12px;margin-top:16px;flex-wrap:wrap}
+    .card{background:var(--card);padding:14px;border-radius:10px;box-shadow:0 6px 18px rgba(20,30,50,0.06);flex:1;min-width:260px}
+    pre{white-space:pre-wrap;overflow:auto;background:#f3f6fb;padding:10px;border-radius:6px;border:1px solid #eef;max-height:320px}
+    .muted{color:var(--muted);font-size:13px}
+    .pill{display:inline-block;padding:6px 8px;border-radius:999px;background:#eef7ff;color:var(--accent);font-weight:600;margin-right:6px;font-size:13px}
+    .kvs{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .k{font-weight:700;color:#333} .v{color:#222}
+    footer{margin-top:18px;color:var(--muted);font-size:13px}
+    .lang-toggle{margin-left:auto}
+    @media(max-width:640px){.kvs{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40'><rect rx='8' width='40' height='40' fill='%23156%25' /></svg>" alt="" width="40" style="border-radius:8px;background:#e8f3ff"/>
+      <div>
+        <h1>MediLookup — दवा जानकारी खोजें</h1>
+        <div class="muted">नाम डालें: इंग्रेडिएन्त्स, फ़ॉर्म, स्टोरेज, डोज़ दिखाएगा</div>
+      </div>
+
+      <div class="lang-toggle">
+        <label class="muted"><input id="lang" type="checkbox"/> हिंदी</label>
+      </div>
+    </header>
+
+    <form id="form" class="search" onsubmit="return false">
+      <input id="q" type="search" placeholder="दवा का ब्रांड या generic नाम लिखें — उदाहरण: paracetamol" autocomplete="off" />
+      <button id="go">Search</button>
+    </form>
+
+    <div id="status" style="margin-top:12px;color:var(--muted)"></div>
+
+    <div id="resultArea" class="row" style="display:none">
+      <div class="card" id="summary">
+        <div id="title" style="font-size:18px;font-weight:700">—</div>
+        <div class="muted" id="source">source: —</div>
+
+        <div style="margin-top:12px" id="badges"></div>
+
+        <div style="margin-top:12px">
+          <div class="kvs">
+            <div><div class="k">Active ingredients</div><div class="v" id="ingredients">—</div></div>
+            <div><div class="k">Form / Dosage form</div><div class="v" id="formfld">—</div></div>
+            <div><div class="k">Storage</div><div class="v" id="storage">—</div></div>
+            <div><div class="k">Dosage / Administration</div><div class="v" id="dose">—</div></div>
+          </div>
+        </div>
+
+        <div style="margin-top:12px">
+          <div class="k">Raw / Notes</div>
+          <pre id="raw">—</pre>
+        </div>
+      </div>
+
+      <div class="card" id="otherCard">
+        <div class="k">Excipients / Package / Additional</div>
+        <pre id="excipients">—</pre>
+
+        <div style="margin-top:12px">
+          <div class="k">Full JSON (debug)</div>
+          <pre id="json">—</pre>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <div class="muted">यह जानकारी केवल संदर्भ के लिए है — चिकित्सा सलाह के लिए डॉक्टर से संपर्क करें। अगर API CORS blocked दिखे तो backend proxy की ज़रूरत है (README में बताया है)।</div>
+    </footer>
+  </div>
+
+  <script>
+    // Single-file client that tries openFDA first, then DailyMed.
+    const el = (id) => document.getElementById(id);
+    const langCb = el('lang');
+    const t = {
+      en: {
+        searching: 'Searching...',
+        error: 'Error',
+        try_proxy: 'If blocked by CORS, use a server proxy.',
+      },
+      hi: {
+        searching: 'खोज रहा है...',
+        error: 'त्रुटि',
+        try_proxy: 'अगर CORS ब्लॉक करे तो सर्वर प्रॉक्सी का उपयोग करें।',
+      }
+    };
+
+    function msg(text){ el('status').textContent = text }
+
+    async function fetchOpenFDA(q) {
+      // openFDA label search (limit=1). openFDA supports JSON responses.
+      const url = 'https://api.fda.gov/drug/label.json?search=openfda.brand_name:"' + encodeURIComponent(q) +
+        '"+OR+openfda.generic_name:"' + encodeURIComponent(q) + '"&limit=1';
+      const r = await fetch(url);
+      if (!r.ok) throw new Error('openFDA: ' + r.status + ' ' + r.statusText);
+      const j = await r.json();
+      if (!j.results || !j.results.length) return null;
+      return {source:'openFDA', raw:j.results[0]};
+    }
+
+    async function fetchDailyMed(q) {
+      // DailyMed chew: find setid via drugname endpoint then fetch spl
+      const url = 'https://dailymed.nlm.nih.gov/dailymed/services/v2/drugname/' + encodeURIComponent(q) + '/spls.json';
+      const r = await fetch(url);
+      if (!r.ok) throw new Error('DailyMed index: ' + r.status);
+      const j = await r.json();
+      if (!j.data || !j.data.length) return null;
+      const sid = j.data[0].setid;
+      const splUrl = 'https://dailymed.nlm.nih.gov/dailymed/services/v2/spls/' + sid + '.json';
+      const r2 = await fetch(splUrl);
+      if (!r2.ok) throw new Error('DailyMed SPL fetch: ' + r2.status);
+      const s = await r2.json();
+      return {source:'DailyMed', raw:s};
+    }
+
+    function mapOpenFDA(res) {
+      const it = res.raw;
+      return {
+        source: 'openFDA',
+        title: (it.openfda && (it.openfda.brand_name || it.openfda.generic_name) ? 
+                ((it.openfda.brand_name||[]).join(', ') || (it.openfda.generic_name||[]).join(', ')) : (it.brand_name || it.openfda?.generic_name?.[0] || '—')),
+        ingredients: it.active_ingredient || it.openfda?.substance_name || [],
+        form: it.openfda?.dosage_form || (it.dosage_and_administration ? 'see dosage' : '—'),
+        storage: it.storage_and_handling || it.storage_and_handling || null,
+        dose: it.dosage_and_administration || it.dosage_and_administration || null,
+        excipients: it.packaging || it.openfda?.package_label ?? null,
+        rawText: (it.description || it.indications_and_usage || '').slice(0, 400),
+        json: it
+      };
+    }
+
+    function mapDailyMed(res) {
+      const it = res.raw.data;
+      // DailyMed v2 structure: many fields; ingredients often in openfda or ingredients array
+      return {
+        source: 'DailyMed',
+        title: res.raw.data.title || (res.raw.data.package && res.raw.data.package[0] && res.raw.data.package[0].name) || '—',
+        ingredients: res.raw.data?.openfda?.active_ingredient || res.raw.data?.ingredients || [],
+        form: res.raw.data?.package?.map(p => p.form) || (res.raw.data?.package?.map(p=>p.name)) || '—',
+        storage: res.raw.data?.storage_and_handling || null,
+        dose: null,
+        excipients: res.raw.data?.package || null,
+        rawText: (res.raw.data?.spl_unstructured || '').slice(0, 400),
+        json: res.raw
+      };
+    }
+
+    function showResult(m) {
+      el('resultArea').style.display = 'flex';
+      el('title').textContent = m.title || '—';
+      el('source').textContent = 'source: ' + (m.source || '—');
+      el('ingredients').textContent = (Array.isArray(m.ingredients) ? m.ingredients.join('; ') : (m.ingredients || '—'));
+      el('formfld').textContent = (Array.isArray(m.form) ? m.form.join('; ') : (m.form || '—'));
+      el('storage').textContent = m.storage ? (typeof m.storage === 'string' ? m.storage : JSON.stringify(m.storage).slice(0,300)) : '—';
+      el('dose').textContent = m.dose ? (typeof m.dose === 'string' ? m.dose : JSON.stringify(m.dose).slice(0,300)) : '—';
+      el('raw').textContent = m.rawText || '—';
+      el('excipients').textContent = m.excipients ? (typeof m.excipients === 'string'? m.excipients : JSON.stringify(m.excipients, null, 2).slice(0,800)) : '—';
+      el('json').textContent = JSON.stringify(m.json || {}, null, 2);
+      // badges
+      const b = el('badges'); b.innerHTML = '';
+      const pills = [];
+      if (Array.isArray(m.ingredients) && m.ingredients.length) pills.push('API: ' + m.ingredients.slice(0,3).join(', '));
+      if (Array.isArray(m.form) && m.form.length) pills.push('Form: ' + m.form.slice(0,2).join(', '));
+      pills.forEach(p => {
+        const span = document.createElement('span'); span.className='pill'; span.textContent = p;
+        b.appendChild(span);
+      });
+    }
+
+    async function runQuery(q) {
+      el('resultArea').style.display = 'none';
+      msg((langCb.checked ? t.hi.searching : t.en.searching) + ' "' + q + '"');
+      try {
+        // try openFDA
+        try {
+          const of = await fetchOpenFDA(q);
+          if (of) {
+            const mapped = mapOpenFDA(of);
+            showResult(mapped);
+            msg('Found via openFDA');
+            return;
+          }
+        } catch (e) {
+          console.warn('openFDA error', e);
+          // if it's CORS blocked we'll see fetch/network error; continue to try DailyMed
+        }
+
+        // try DailyMed
+        try {
+          const dm = await fetchDailyMed(q);
+          if (dm) {
+            const mapped = mapDailyMed(dm);
+            showResult(mapped);
+            msg('Found via DailyMed');
+            return;
+          } else {
+            msg((langCb.checked ? 'नहीं मिला' : 'Not found') + ' — ' + (langCb.checked ? t.hi.try_proxy : t.en.try_proxy));
+            el('resultArea').style.display = 'none';
+            return;
+          }
+        } catch (e2) {
+          console.error('DailyMed error', e2);
+          msg((langCb.checked ? t.hi.error : t.en.error) + ': ' + e2.message + ' — ' + (langCb.checked ? t.hi.try_proxy : t.en.try_proxy));
+          el('resultArea').style.display = 'none';
+          return;
+        }
+
+      } catch (err) {
+        msg((langCb.checked ? t.hi.error : t.en.error) + ': ' + err.message);
+        el('resultArea').style.display = 'none';
+      }
+    }
+
+    // wire events
+    el('go').addEventListener('click', () => {
+      const q = el('q').value.trim();
+      if (!q) { msg(langCb.checked ? 'कुछ लिखें' : 'Type something'); return; }
+      runQuery(q);
+    });
+
+    el('q').addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') { ev.preventDefault(); el('go').click(); }
+    });
+
+    // language toggle: change placeholders
+    langCb.addEventListener('change', () => {
+      if (langCb.checked) {
+        el('q').placeholder = 'दवा का नाम लिखें — जैसे: paracetamol';
+        el('go').textContent = 'खोजें';
+      } else {
+        el('q').placeholder = 'Search medicine (brand or generic) — e.g. paracetamol';
+        el('go').textContent = 'Search';
+      }
+    });
+
+    // quick example on load (optional)
+    // window.addEventListener('load', ()=>{ el('q').value='paracetamol'; /* el('go').click(); */ });
+  </script>
+</body>
+  </html>
