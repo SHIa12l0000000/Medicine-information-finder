@@ -3,255 +3,311 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>MediLookup — Single File</title>
+  <title>MediDB — India (client-side search)</title>
   <style>
-    :root{--bg:#f7f9fc;--card:#fff;--muted:#666;--accent:#1565c0}
+    :root{--bg:#f6fbff;--card:#fff;--muted:#666;--accent:#0b63b7}
     *{box-sizing:border-box;font-family:Inter,system-ui,Arial, sans-serif}
-    body{margin:0;background:var(--bg);color:#111}
-    .wrap{max-width:920px;margin:28px auto;padding:20px}
+    body{margin:0;background:var(--bg);color:#0d1721}
+    .wrap{max-width:980px;margin:28px auto;padding:20px}
     header{display:flex;align-items:center;gap:12px}
     h1{margin:0;font-size:20px}
-    .search{display:flex;gap:8px;margin-top:14px}
-    input[type="search"]{flex:1;padding:12px;border-radius:8px;border:1px solid #ddd;font-size:15px}
-    button{padding:10px 14px;border-radius:8px;border:0;background:var(--accent);color:#fff;font-weight:600;cursor:pointer}
+    .muted{color:var(--muted)}
+    .controls{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+    input[type="search"], input[type="file"], select{padding:10px;border-radius:8px;border:1px solid #ddd;font-size:14px}
+    button{padding:10px 14px;border-radius:8px;border:0;background:var(--accent);color:#fff;cursor:pointer}
     .row{display:flex;gap:12px;margin-top:16px;flex-wrap:wrap}
-    .card{background:var(--card);padding:14px;border-radius:10px;box-shadow:0 6px 18px rgba(20,30,50,0.06);flex:1;min-width:260px}
-    pre{white-space:pre-wrap;overflow:auto;background:#f3f6fb;padding:10px;border-radius:6px;border:1px solid #eef;max-height:320px}
-    .muted{color:var(--muted);font-size:13px}
-    .pill{display:inline-block;padding:6px 8px;border-radius:999px;background:#eef7ff;color:var(--accent);font-weight:600;margin-right:6px;font-size:13px}
-    .kvs{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-    .k{font-weight:700;color:#333} .v{color:#222}
-    footer{margin-top:18px;color:var(--muted);font-size:13px}
-    .lang-toggle{margin-left:auto}
-    @media(max-width:640px){.kvs{grid-template-columns:1fr}}
+    .card{background:var(--card);padding:14px;border-radius:10px;box-shadow:0 6px 20px rgba(20,30,50,0.06);flex:1;min-width:260px}
+    .k{font-weight:700} .v{margin-top:6px}
+    pre{white-space:pre-wrap;overflow:auto;background:#f3f6fb;padding:10px;border-radius:6px;border:1px solid #eef;max-height:360px}
+    .small{font-size:13px;color:var(--muted)}
+    .badge{display:inline-block;background:#eef7ff;color:var(--accent);padding:6px 8px;border-radius:999px;margin-right:6px;font-weight:600;margin-top:8px}
+    .footer{margin-top:18px;color:var(--muted);font-size:13px}
+    .hint{margin-top:8px;color:#333;font-size:14px}
+    .results-list{max-height:300px;overflow:auto;padding:6px;border-radius:6px;border:1px solid #eee;background:#fff}
+    .result-item{padding:8px;border-bottom:1px solid #f3f4f6;cursor:pointer}
+    .result-item:hover{background:#f8fbff}
   </style>
+  <!-- Fuse.js for fuzzy search -->
+  <script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2/dist/fuse.min.js"></script>
+  <!-- PapaParse for CSV parsing -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
 </head>
 <body>
   <div class="wrap">
     <header>
-      <img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40'><rect rx='8' width='40' height='40' fill='%23156%25' /></svg>" alt="" width="40" style="border-radius:8px;background:#e8f3ff"/>
+      <div style="width:48px;height:48px;border-radius:10px;background:#e9f5ff;display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--accent)">MD</div>
       <div>
-        <h1>MediLookup — दवा जानकारी खोजें</h1>
-        <div class="muted">नाम डालें: इंग्रेडिएन्त्स, फ़ॉर्म, स्टोरेज, डोज़ दिखाएगा</div>
-      </div>
-
-      <div class="lang-toggle">
-        <label class="muted"><input id="lang" type="checkbox"/> हिंदी</label>
+        <h1>MediDB — भारत की दवाइयाँ (Prototype)</h1>
+        <div class="muted">JSON/CSV अपलोड करें या नीचे दिए sample पर खोजें — active ingredient, storage, dosage, expiry, side-effects वगैरह दिखाएँगा।</div>
       </div>
     </header>
 
-    <form id="form" class="search" onsubmit="return false">
-      <input id="q" type="search" placeholder="दवा का ब्रांड या generic नाम लिखें — उदाहरण: paracetamol" autocomplete="off" />
-      <button id="go">Search</button>
-    </form>
+    <div class="controls">
+      <input id="q" type="search" placeholder="दवा का नाम लिखें — brand या generic (उदा: paracetamol)" style="flex:1" />
+      <button id="searchBtn">Search</button>
 
-    <div id="status" style="margin-top:12px;color:var(--muted)"></div>
+      <input id="fileIn" type="file" accept=".json,.csv" />
+      <button id="loadSample">Load Sample Dataset</button>
+      <select id="limitSel" title="results">
+        <option value="10">Top 10</option>
+        <option value="25" selected>Top 25</option>
+        <option value="50">Top 50</option>
+      </select>
+    </div>
 
-    <div id="resultArea" class="row" style="display:none">
-      <div class="card" id="summary">
-        <div id="title" style="font-size:18px;font-weight:700">—</div>
-        <div class="muted" id="source">source: —</div>
+    <div class="hint"> 
+      <span class="small">डेटासेट फॉर्मैट:</span> हर record JSON में कम से कम ये फ़ील्ड अच्छे रहते हैं: <span class="badge">brand</span> <span class="badge">generic</span> <span class="badge">api</span> <span class="badge">excipients</span> <span class="badge">storage</span> <span class="badge">dosage</span> <span class="badge">expiry</span> <span class="badge">side_effects</span> <span class="badge">manufacturer</span> <span class="badge">code</span>
+    </div>
 
-        <div style="margin-top:12px" id="badges"></div>
-
-        <div style="margin-top:12px">
-          <div class="kvs">
-            <div><div class="k">Active ingredients</div><div class="v" id="ingredients">—</div></div>
-            <div><div class="k">Form / Dosage form</div><div class="v" id="formfld">—</div></div>
-            <div><div class="k">Storage</div><div class="v" id="storage">—</div></div>
-            <div><div class="k">Dosage / Administration</div><div class="v" id="dose">—</div></div>
-          </div>
-        </div>
-
-        <div style="margin-top:12px">
-          <div class="k">Raw / Notes</div>
-          <pre id="raw">—</pre>
-        </div>
+    <div style="margin-top:12px;display:flex;gap:12px;">
+      <div style="flex:1">
+        <div class="small">Search results</div>
+        <div id="results" class="results-list"></div>
       </div>
+      <div style="flex:2">
+        <div class="card">
+          <div id="detailTitle" style="font-size:18px;font-weight:800">कोई रिकॉर्ड चुना नहीं गया</div>
+          <div class="small" id="detailSource">डेटासेट: sample (client)</div>
 
-      <div class="card" id="otherCard">
-        <div class="k">Excipients / Package / Additional</div>
-        <pre id="excipients">—</pre>
+          <div style="margin-top:12px">
+            <div class="k">Brand / Name</div><div class="v" id="f_brand">—</div>
+            <div class="k">Generic / Salt</div><div class="v" id="f_generic">—</div>
+            <div class="k">Active Ingredient (API)</div><div class="v" id="f_api">—</div>
+            <div class="k">Form / Dosage form</div><div class="v" id="f_form">—</div>
+            <div class="k">Dosage / Administration</div><div class="v" id="f_dosage">—</div>
+            <div class="k">Storage instructions</div><div class="v" id="f_storage">—</div>
+            <div class="k">Excipients / Packaging</div><div class="v" id="f_excipients">—</div>
+            <div class="k">Side effects / Warnings</div><div class="v" id="f_side">—</div>
+            <div class="k">Manufacturer</div><div class="v" id="f_manuf">—</div>
+            <div class="k">Code / NDC / Local code</div><div class="v" id="f_code">—</div>
+            <div class="k">Expiry / Shelf life</div><div class="v" id="f_expiry">—</div>
+          </div>
 
-        <div style="margin-top:12px">
-          <div class="k">Full JSON (debug)</div>
-          <pre id="json">—</pre>
+          <div style="margin-top:12px">
+            <div class="k">Raw JSON (selected)</div>
+            <pre id="f_json">—</pre>
+          </div>
         </div>
       </div>
     </div>
 
-    <footer>
-      <div class="muted">यह जानकारी केवल संदर्भ के लिए है — चिकित्सा सलाह के लिए डॉक्टर से संपर्क करें। अगर API CORS blocked दिखे तो backend proxy की ज़रूरत है (README में बताया है)।</div>
-    </footer>
+    <div class="footer">
+      नोट: यह केवल prototype है। असली भारत-विशिष्ट, पूर्ण और अपडेटेड डेटा के लिए आप GitHub/paid datasets डाउनलोड करके JSON/CSV अपलोड करें। सुनिश्चित करें कि डेटा लाइसेंस आपको अनुमति देता है। यह ऐप क्लाइंट-साइड (ब्राउज़र) में चलता है — बड़े datasets पर ब्राउज़र मेमोरी जरूरत के अनुसार लिया जाए।  
+    </div>
   </div>
 
   <script>
-    // Single-file client that tries openFDA first, then DailyMed.
-    const el = (id) => document.getElementById(id);
-    const langCb = el('lang');
-    const t = {
-      en: {
-        searching: 'Searching...',
-        error: 'Error',
-        try_proxy: 'If blocked by CORS, use a server proxy.',
-      },
-      hi: {
-        searching: 'खोज रहा है...',
-        error: 'त्रुटि',
-        try_proxy: 'अगर CORS ब्लॉक करे तो सर्वर प्रॉक्सी का उपयोग करें।',
+  /**************************
+   * MediDB single-file client
+   * - Uses Fuse.js for fuzzy search
+   * - Uses PapaParse for CSV -> JSON
+   * - Allows uploading JSON or CSV files with medicine records
+   * - Displays record fields: brand, generic, api, excipients, storage, dosage, expiry, side_effects, manufacturer, code
+   *
+   * How to use:
+   * 1) Click "Load Sample Dataset" to see sample entries.
+   * 2) Or click file input and upload a JSON (array of objects) or CSV file (with headers).
+   * 3) Type a medicine name & click Search. Click a result to view details.
+   *
+   * Note: For production, use a backend + DB + proper authoritative data source.
+   **************************/
+
+  let dataset = [];      // array of records
+  let fuse = null;
+  const resultsEl = document.getElementById('results');
+
+  // Sample minimal dataset (replace / upload real DB)
+  const sample = [
+    {
+      "brand": "Crocin Advance",
+      "generic": "Paracetamol + Caffeine",
+      "api": "Paracetamol 500 mg; Caffeine 65 mg",
+      "excipients": "Starch, Povidone, Magnesium stearate",
+      "storage": "Store below 25°C. Protect from moisture.",
+      "dosage": "Adults: 1-2 tablets every 4-6 hours. Max 4g/day paracetamol.",
+      "expiry": "24 months from manufacturing",
+      "side_effects": "Rare: liver dysfunction at high doses, nausea, allergic reaction",
+      "manufacturer": "GlaxoSmithKline Pharmaceuticals Ltd",
+      "code": "IN-001-CRN"
+    },
+    {
+      "brand": "Dolo 650",
+      "generic": "Paracetamol",
+      "api": "Paracetamol 650 mg",
+      "excipients": "Lactose, Maize starch, Povidone",
+      "storage": "Store at room temperature (15–30°C)",
+      "dosage": "Adults: 1 tablet (650 mg) every 4-6 hours as needed. Max 3-4g/day.",
+      "expiry": "36 months",
+      "side_effects": "Nausea, rash, rare hepatic toxicity on overdose",
+      "manufacturer": "Micro Labs Ltd",
+      "code": "IN-002-DLO"
+    },
+    {
+      "brand": "Crocin",
+      "generic": "Paracetamol",
+      "api": "Paracetamol 500 mg",
+      "excipients": "Starch, Povidone, Magnesium stearate",
+      "storage": "Keep in a cool, dry place",
+      "dosage": "Adults: 1-2 tablets every 4-6 hours. Max 4g/day of paracetamol.",
+      "expiry": "24 months",
+      "side_effects": "Allergic reactions very rare",
+      "manufacturer": "GlaxoSmithKline Pharmaceuticals Ltd",
+      "code": "IN-003-CRCN"
+    },
+    {
+      "brand": "Augmentin",
+      "generic": "Amoxicillin + Clavulanic acid",
+      "api": "Amoxicillin 500 mg; Clavulanic acid 125 mg",
+      "excipients": "Sodium starch glycolate, cellulose",
+      "storage": "Store below 25°C. Protect from light.",
+      "dosage": "Adults: 1 tablet every 8-12 hours (as prescribed). Duration per infection.",
+      "expiry": "24 months",
+      "side_effects": "Diarrhea, nausea, allergic reactions (rash)",
+      "manufacturer": "GSK / Pfizer (brands vary)",
+      "code": "IN-004-AUG"
+    }
+  ];
+
+  function buildIndex() {
+    // Use Fuse.js to index common searchable keys
+    const options = {
+      keys: [
+        { name: 'brand', weight: 0.6 },
+        { name: 'generic', weight: 0.5 },
+        { name: 'api', weight: 0.4 },
+        { name: 'manufacturer', weight: 0.2 },
+        { name: 'code', weight: 0.1 }
+      ],
+      threshold: 0.35,
+      includeScore: true,
+      useExtendedSearch: true,
+      ignoreLocation: true,
+      minMatchCharLength: 2,
+    };
+    fuse = new Fuse(dataset, options);
+  }
+
+  function renderResults(items) {
+    resultsEl.innerHTML = '';
+    if (!items || items.length === 0) {
+      resultsEl.innerHTML = '<div class="small" style="padding:8px">कोई परिणाम नहीं मिला</div>';
+      return;
+    }
+    items.forEach((it, idx) => {
+      // if coming from fuse result object, item is it.item
+      const rec = it.item ? it.item : it;
+      const div = document.createElement('div');
+      div.className = 'result-item';
+      div.innerHTML = '<div style="font-weight:700">' + escapeHtml(rec.brand || rec.generic || '—') + '</div><div class="small">' +
+                      escapeHtml((rec.generic ? rec.generic : '')) + ' &nbsp; <span class="small muted">' + (rec.manufacturer || '') + '</span></div>';
+      div.addEventListener('click', () => showDetail(rec));
+      resultsEl.appendChild(div);
+    });
+  }
+
+  function showDetail(rec) {
+    document.getElementById('detailTitle').textContent = rec.brand || rec.generic || '—';
+    document.getElementById('detailSource').textContent = 'डेटासेट: client (uploaded or sample)';
+    document.getElementById('f_brand').textContent = rec.brand || '—';
+    document.getElementById('f_generic').textContent = rec.generic || '—';
+    document.getElementById('f_api').textContent = rec.api || '—';
+    document.getElementById('f_form').textContent = rec.form || '—';
+    document.getElementById('f_dosage').textContent = rec.dosage || '—';
+    document.getElementById('f_storage').textContent = rec.storage || '—';
+    document.getElementById('f_excipients').textContent = rec.excipients || '—';
+    document.getElementById('f_side').textContent = rec.side_effects || rec.sideEffects || rec.side || '—';
+    document.getElementById('f_manuf').textContent = rec.manufacturer || '—';
+    document.getElementById('f_code').textContent = rec.code || rec.ndc || rec.ndc_code || '—';
+    document.getElementById('f_expiry').textContent = rec.expiry || rec.shelf_life || '—';
+    document.getElementById('f_json').textContent = JSON.stringify(rec, null, 2);
+  }
+
+  function escapeHtml(s) {
+    if (!s) return '';
+    return String(s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; });
+  }
+
+  // Search handler
+  document.getElementById('searchBtn').addEventListener('click', () => {
+    const q = document.getElementById('q').value.trim();
+    if (!q) {
+      alert('कृपया कोई नाम लिखें');
+      return;
+    }
+    if (!fuse) {
+      alert('डेटासेट लोड नहीं है — पहले Sample load करें या CSV/JSON upload करें।');
+      return;
+    }
+    // use fuse search
+    const raw = fuse.search(q, { limit: parseInt(document.getElementById('limitSel').value || 25) });
+    renderResults(raw);
+    if (raw.length) {
+      // auto open first
+      showDetail(raw[0].item);
+    }
+  });
+
+  // Quick load sample
+  document.getElementById('loadSample').addEventListener('click', () => {
+    dataset = sample.slice(); // copy
+    buildIndex();
+    renderResults(dataset.slice(0, parseInt(document.getElementById('limitSel').value || 25)));
+    document.getElementById('detailTitle').textContent = 'Sample dataset loaded — select a result';
+    document.getElementById('detailSource').textContent = 'डेटासेट: sample (client)';
+  });
+
+  // File upload (CSV or JSON)
+  document.getElementById('fileIn').addEventListener('change', (ev) => {
+    const f = ev.target.files[0];
+    if (!f) return;
+    const name = f.name.toLowerCase();
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        if (name.endsWith('.json')) {
+          const j = JSON.parse(e.target.result);
+          if (!Array.isArray(j)) {
+            alert('JSON फ़ाइल में array of objects होना चाहिए');
+            return;
+          }
+          dataset = j;
+          buildIndex();
+          renderResults(dataset.slice(0, parseInt(document.getElementById('limitSel').value || 25)));
+          document.getElementById('detailTitle').textContent = 'Uploaded JSON dataset loaded';
+          document.getElementById('detailSource').textContent = 'डेटासेट: uploaded JSON';
+        } else if (name.endsWith('.csv')) {
+          // parse via PapaParse
+          Papa.parse(e.target.result, {
+            header: true,
+            skipEmptyLines: true,
+            complete: function(results) {
+              dataset = results.data;
+              buildIndex();
+              renderResults(dataset.slice(0, parseInt(document.getElementById('limitSel').value || 25)));
+              document.getElementById('detailTitle').textContent = 'Uploaded CSV dataset loaded';
+              document.getElementById('detailSource').textContent = 'डेटासेट: uploaded CSV';
+            },
+            error: function(err) {
+              alert('CSV parse error: ' + err.message);
+            }
+          });
+        } else {
+          alert('सिर्फ़ .json या .csv फाइल चुनें');
+        }
+      } catch (ex) {
+        alert('फाइल पढ़ने में त्रुटि: ' + ex.message);
       }
     };
+    reader.readAsText(f);
+  });
 
-    function msg(text){ el('status').textContent = text }
+  // load sample automatically on first open for convenience
+  (function init() {
+    dataset = sample.slice();
+    buildIndex();
+    renderResults(dataset.slice(0, parseInt(document.getElementById('limitSel').value || 25)));
+  })();
 
-    async function fetchOpenFDA(q) {
-      // openFDA label search (limit=1). openFDA supports JSON responses.
-      const url = 'https://api.fda.gov/drug/label.json?search=openfda.brand_name:"' + encodeURIComponent(q) +
-        '"+OR+openfda.generic_name:"' + encodeURIComponent(q) + '"&limit=1';
-      const r = await fetch(url);
-      if (!r.ok) throw new Error('openFDA: ' + r.status + ' ' + r.statusText);
-      const j = await r.json();
-      if (!j.results || !j.results.length) return null;
-      return {source:'openFDA', raw:j.results[0]};
-    }
-
-    async function fetchDailyMed(q) {
-      // DailyMed chew: find setid via drugname endpoint then fetch spl
-      const url = 'https://dailymed.nlm.nih.gov/dailymed/services/v2/drugname/' + encodeURIComponent(q) + '/spls.json';
-      const r = await fetch(url);
-      if (!r.ok) throw new Error('DailyMed index: ' + r.status);
-      const j = await r.json();
-      if (!j.data || !j.data.length) return null;
-      const sid = j.data[0].setid;
-      const splUrl = 'https://dailymed.nlm.nih.gov/dailymed/services/v2/spls/' + sid + '.json';
-      const r2 = await fetch(splUrl);
-      if (!r2.ok) throw new Error('DailyMed SPL fetch: ' + r2.status);
-      const s = await r2.json();
-      return {source:'DailyMed', raw:s};
-    }
-
-    function mapOpenFDA(res) {
-      const it = res.raw;
-      return {
-        source: 'openFDA',
-        title: (it.openfda && (it.openfda.brand_name || it.openfda.generic_name) ? 
-                ((it.openfda.brand_name||[]).join(', ') || (it.openfda.generic_name||[]).join(', ')) : (it.brand_name || it.openfda?.generic_name?.[0] || '—')),
-        ingredients: it.active_ingredient || it.openfda?.substance_name || [],
-        form: it.openfda?.dosage_form || (it.dosage_and_administration ? 'see dosage' : '—'),
-        storage: it.storage_and_handling || it.storage_and_handling || null,
-        dose: it.dosage_and_administration || it.dosage_and_administration || null,
-        excipients: it.packaging || it.openfda?.package_label ?? null,
-        rawText: (it.description || it.indications_and_usage || '').slice(0, 400),
-        json: it
-      };
-    }
-
-    function mapDailyMed(res) {
-      const it = res.raw.data;
-      // DailyMed v2 structure: many fields; ingredients often in openfda or ingredients array
-      return {
-        source: 'DailyMed',
-        title: res.raw.data.title || (res.raw.data.package && res.raw.data.package[0] && res.raw.data.package[0].name) || '—',
-        ingredients: res.raw.data?.openfda?.active_ingredient || res.raw.data?.ingredients || [],
-        form: res.raw.data?.package?.map(p => p.form) || (res.raw.data?.package?.map(p=>p.name)) || '—',
-        storage: res.raw.data?.storage_and_handling || null,
-        dose: null,
-        excipients: res.raw.data?.package || null,
-        rawText: (res.raw.data?.spl_unstructured || '').slice(0, 400),
-        json: res.raw
-      };
-    }
-
-    function showResult(m) {
-      el('resultArea').style.display = 'flex';
-      el('title').textContent = m.title || '—';
-      el('source').textContent = 'source: ' + (m.source || '—');
-      el('ingredients').textContent = (Array.isArray(m.ingredients) ? m.ingredients.join('; ') : (m.ingredients || '—'));
-      el('formfld').textContent = (Array.isArray(m.form) ? m.form.join('; ') : (m.form || '—'));
-      el('storage').textContent = m.storage ? (typeof m.storage === 'string' ? m.storage : JSON.stringify(m.storage).slice(0,300)) : '—';
-      el('dose').textContent = m.dose ? (typeof m.dose === 'string' ? m.dose : JSON.stringify(m.dose).slice(0,300)) : '—';
-      el('raw').textContent = m.rawText || '—';
-      el('excipients').textContent = m.excipients ? (typeof m.excipients === 'string'? m.excipients : JSON.stringify(m.excipients, null, 2).slice(0,800)) : '—';
-      el('json').textContent = JSON.stringify(m.json || {}, null, 2);
-      // badges
-      const b = el('badges'); b.innerHTML = '';
-      const pills = [];
-      if (Array.isArray(m.ingredients) && m.ingredients.length) pills.push('API: ' + m.ingredients.slice(0,3).join(', '));
-      if (Array.isArray(m.form) && m.form.length) pills.push('Form: ' + m.form.slice(0,2).join(', '));
-      pills.forEach(p => {
-        const span = document.createElement('span'); span.className='pill'; span.textContent = p;
-        b.appendChild(span);
-      });
-    }
-
-    async function runQuery(q) {
-      el('resultArea').style.display = 'none';
-      msg((langCb.checked ? t.hi.searching : t.en.searching) + ' "' + q + '"');
-      try {
-        // try openFDA
-        try {
-          const of = await fetchOpenFDA(q);
-          if (of) {
-            const mapped = mapOpenFDA(of);
-            showResult(mapped);
-            msg('Found via openFDA');
-            return;
-          }
-        } catch (e) {
-          console.warn('openFDA error', e);
-          // if it's CORS blocked we'll see fetch/network error; continue to try DailyMed
-        }
-
-        // try DailyMed
-        try {
-          const dm = await fetchDailyMed(q);
-          if (dm) {
-            const mapped = mapDailyMed(dm);
-            showResult(mapped);
-            msg('Found via DailyMed');
-            return;
-          } else {
-            msg((langCb.checked ? 'नहीं मिला' : 'Not found') + ' — ' + (langCb.checked ? t.hi.try_proxy : t.en.try_proxy));
-            el('resultArea').style.display = 'none';
-            return;
-          }
-        } catch (e2) {
-          console.error('DailyMed error', e2);
-          msg((langCb.checked ? t.hi.error : t.en.error) + ': ' + e2.message + ' — ' + (langCb.checked ? t.hi.try_proxy : t.en.try_proxy));
-          el('resultArea').style.display = 'none';
-          return;
-        }
-
-      } catch (err) {
-        msg((langCb.checked ? t.hi.error : t.en.error) + ': ' + err.message);
-        el('resultArea').style.display = 'none';
-      }
-    }
-
-    // wire events
-    el('go').addEventListener('click', () => {
-      const q = el('q').value.trim();
-      if (!q) { msg(langCb.checked ? 'कुछ लिखें' : 'Type something'); return; }
-      runQuery(q);
-    });
-
-    el('q').addEventListener('keydown', (ev) => {
-      if (ev.key === 'Enter') { ev.preventDefault(); el('go').click(); }
-    });
-
-    // language toggle: change placeholders
-    langCb.addEventListener('change', () => {
-      if (langCb.checked) {
-        el('q').placeholder = 'दवा का नाम लिखें — जैसे: paracetamol';
-        el('go').textContent = 'खोजें';
-      } else {
-        el('q').placeholder = 'Search medicine (brand or generic) — e.g. paracetamol';
-        el('go').textContent = 'Search';
-      }
-    });
-
-    // quick example on load (optional)
-    // window.addEventListener('load', ()=>{ el('q').value='paracetamol'; /* el('go').click(); */ });
   </script>
 </body>
-  </html>
+</html>
