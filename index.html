@@ -1,88 +1,87 @@
 <!doctype html>
-<html lang="hi">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>MediDB — India (client-side search)</title>
+  <title>MediDB — India (IndexedDB import + client search)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <style>
     :root{--bg:#f6fbff;--card:#fff;--muted:#666;--accent:#0b63b7}
-    *{box-sizing:border-box;font-family:Inter,system-ui,Arial, sans-serif}
-    body{margin:0;background:var(--bg);color:#0d1721}
-    .wrap{max-width:980px;margin:28px auto;padding:20px}
+    body{margin:0;background:var(--bg);font-family:Inter,system-ui,Arial,sans-serif;color:#0d1721}
+    .wrap{max-width:1100px;margin:22px auto;padding:18px}
     header{display:flex;align-items:center;gap:12px}
     h1{margin:0;font-size:20px}
     .muted{color:var(--muted)}
     .controls{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
-    input[type="search"], input[type="file"], select{padding:10px;border-radius:8px;border:1px solid #ddd;font-size:14px}
+    input[type="search"], input[type="file"], select, textarea{padding:10px;border-radius:8px;border:1px solid #ddd;font-size:14px}
     button{padding:10px 14px;border-radius:8px;border:0;background:var(--accent);color:#fff;cursor:pointer}
     .row{display:flex;gap:12px;margin-top:16px;flex-wrap:wrap}
-    .card{background:var(--card);padding:14px;border-radius:10px;box-shadow:0 6px 20px rgba(20,30,50,0.06);flex:1;min-width:260px}
-    .k{font-weight:700} .v{margin-top:6px}
+    .card{background:var(--card);padding:14px;border-radius:10px;box-shadow:0 6px 20px rgba(20,30,50,0.06);flex:1;min-width:280px}
     pre{white-space:pre-wrap;overflow:auto;background:#f3f6fb;padding:10px;border-radius:6px;border:1px solid #eef;max-height:360px}
     .small{font-size:13px;color:var(--muted)}
-    .badge{display:inline-block;background:#eef7ff;color:var(--accent);padding:6px 8px;border-radius:999px;margin-right:6px;font-weight:600;margin-top:8px}
-    .footer{margin-top:18px;color:var(--muted);font-size:13px}
-    .hint{margin-top:8px;color:#333;font-size:14px}
-    .results-list{max-height:300px;overflow:auto;padding:6px;border-radius:6px;border:1px solid #eee;background:#fff}
     .result-item{padding:8px;border-bottom:1px solid #f3f4f6;cursor:pointer}
     .result-item:hover{background:#f8fbff}
+    #status{margin-top:10px;color:#333}
   </style>
-  <!-- Fuse.js for fuzzy search -->
-  <script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2/dist/fuse.min.js"></script>
-  <!-- PapaParse for CSV parsing -->
+  <!-- Libraries from CDN -->
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2/dist/fuse.min.js"></script>
 </head>
 <body>
   <div class="wrap">
     <header>
       <div style="width:48px;height:48px;border-radius:10px;background:#e9f5ff;display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--accent)">MD</div>
       <div>
-        <h1>MediDB — भारत की दवाइयाँ (Prototype)</h1>
-        <div class="muted">JSON/CSV अपलोड करें या नीचे दिए sample पर खोजें — active ingredient, storage, dosage, expiry, side-effects वगैरह दिखाएँगा।</div>
+        <h1>MediDB — India (Indexed import + Search)</h1>
+        <div class="muted">Import CSV/JSON (official dumps from IPC/CDSCO/NPPA or vendor JSON). Data stored in your browser (IndexedDB). No data leaves your machine.</div>
       </div>
     </header>
 
-    <div class="controls">
-      <input id="q" type="search" placeholder="दवा का नाम लिखें — brand या generic (उदा: paracetamol)" style="flex:1" />
-      <button id="searchBtn">Search</button>
+    <div class="card" style="margin-top:12px">
+      <div style="font-weight:700">Quick steps</div>
+      <ol>
+        <li>Obtain medicine lists / monographs as CSV/JSON from official sources or licensed vendor. See links below.</li>
+        <li>Click <strong>Choose files</strong> (you may select many files at once) and then <strong>Import files</strong>. Files are stored into IndexedDB in chunks.</li>
+        <li>Use the search box to find a brand/generic/API. Click a result to view full details.</li>
+      </ol>
+      <div id="status" class="small">Status: ready</div>
+    </div>
 
-      <input id="fileIn" type="file" accept=".json,.csv" />
-      <button id="loadSample">Load Sample Dataset</button>
+    <div class="controls">
+      <input id="q" type="search" placeholder="Search brand / generic / api / manufacturer" style="flex:1" />
+      <button id="searchBtn">Search</button>
       <select id="limitSel" title="results">
         <option value="10">Top 10</option>
         <option value="25" selected>Top 25</option>
         <option value="50">Top 50</option>
       </select>
+      <input id="fileIn" type="file" accept=".json,.csv" multiple />
+      <button id="importBtn">Import files</button>
+      <button id="clearDbBtn" style="background:#c0392b">Clear DB</button>
     </div>
 
-    <div class="hint"> 
-      <span class="small">डेटासेट फॉर्मैट:</span> हर record JSON में कम से कम ये फ़ील्ड अच्छे रहते हैं: <span class="badge">brand</span> <span class="badge">generic</span> <span class="badge">api</span> <span class="badge">excipients</span> <span class="badge">storage</span> <span class="badge">dosage</span> <span class="badge">expiry</span> <span class="badge">side_effects</span> <span class="badge">manufacturer</span> <span class="badge">code</span>
-    </div>
-
-    <div style="margin-top:12px;display:flex;gap:12px;">
-      <div style="flex:1">
-        <div class="small">Search results</div>
-        <div id="results" class="results-list"></div>
-      </div>
-      <div style="flex:2">
+    <div class="row" style="margin-top:12px">
+      <div style="flex:1;min-width:300px">
         <div class="card">
-          <div id="detailTitle" style="font-size:18px;font-weight:800">कोई रिकॉर्ड चुना नहीं गया</div>
-          <div class="small" id="detailSource">डेटासेट: sample (client)</div>
+          <div class="small">Search results</div>
+          <div id="results" style="max-height:420px;overflow:auto;padding:6px;border-radius:6px;border:1px solid #eee;background:#fff"></div>
+        </div>
+      </div>
 
+      <div style="flex:2;min-width:360px">
+        <div class="card">
+          <div id="detailTitle" style="font-size:18px;font-weight:800">No record selected</div>
+          <div class="small" id="detailSource">Dataset: (none)</div>
           <div style="margin-top:12px">
             <div class="k">Brand / Name</div><div class="v" id="f_brand">—</div>
             <div class="k">Generic / Salt</div><div class="v" id="f_generic">—</div>
             <div class="k">Active Ingredient (API)</div><div class="v" id="f_api">—</div>
-            <div class="k">Form / Dosage form</div><div class="v" id="f_form">—</div>
+            <div class="k">Dosage / Form</div><div class="v" id="f_form">—</div>
             <div class="k">Dosage / Administration</div><div class="v" id="f_dosage">—</div>
-            <div class="k">Storage instructions</div><div class="v" id="f_storage">—</div>
-            <div class="k">Excipients / Packaging</div><div class="v" id="f_excipients">—</div>
-            <div class="k">Side effects / Warnings</div><div class="v" id="f_side">—</div>
+            <div class="k">Storage</div><div class="v" id="f_storage">—</div>
             <div class="k">Manufacturer</div><div class="v" id="f_manuf">—</div>
-            <div class="k">Code / NDC / Local code</div><div class="v" id="f_code">—</div>
+            <div class="k">Code / Local code</div><div class="v" id="f_code">—</div>
             <div class="k">Expiry / Shelf life</div><div class="v" id="f_expiry">—</div>
           </div>
-
           <div style="margin-top:12px">
             <div class="k">Raw JSON (selected)</div>
             <pre id="f_json">—</pre>
@@ -91,223 +90,241 @@
       </div>
     </div>
 
-    <div class="footer">
-      नोट: यह केवल prototype है। असली भारत-विशिष्ट, पूर्ण और अपडेटेड डेटा के लिए आप GitHub/paid datasets डाउनलोड करके JSON/CSV अपलोड करें। सुनिश्चित करें कि डेटा लाइसेंस आपको अनुमति देता है। यह ऐप क्लाइंट-साइड (ब्राउज़र) में चलता है — बड़े datasets पर ब्राउज़र मेमोरी जरूरत के अनुसार लिया जाए।  
+    <div style="margin-top:12px" class="card">
+      <div style="font-weight:700">Schema & tips</div>
+      <div class="small" style="margin-top:8px">
+        Recommended fields (your CSV/JSON should include these if possible): <code>brand</code>, <code>generic</code>, <code>api</code>, <code>dosage</code>, <code>form</code>, <code>storage</code>, <code>expiry</code>, <code>side_effects</code>, <code>manufacturer</code>, <code>code</code>, <code>source</code>.
+      </div>
+      <div style="margin-top:8px">
+        <strong>Performance note:</strong> For large datasets (100k+ rows) prepare data as chunked JSON files (e.g., 10k records each) and import them one file at a time. IndexedDB lets you store big datasets without exhausting RAM.
+      </div>
+    </div>
+
+    <div style="margin-top:10px" class="small muted">
+      Official sources for authoritative data: Indian Pharmacopoeia Commission (IP Online), Central Drugs Standard Control Organization (CDSCO) approved drugs lists, and National Pharmaceutical Pricing Authority (NPPA) price lists. See links embedded in the help section below. :contentReference[oaicite:3]{index=3}
     </div>
   </div>
 
-  <script>
-  /**************************
-   * MediDB single-file client
-   * - Uses Fuse.js for fuzzy search
-   * - Uses PapaParse for CSV -> JSON
-   * - Allows uploading JSON or CSV files with medicine records
-   * - Displays record fields: brand, generic, api, excipients, storage, dosage, expiry, side_effects, manufacturer, code
-   *
-   * How to use:
-   * 1) Click "Load Sample Dataset" to see sample entries.
-   * 2) Or click file input and upload a JSON (array of objects) or CSV file (with headers).
-   * 3) Type a medicine name & click Search. Click a result to view details.
-   *
-   * Note: For production, use a backend + DB + proper authoritative data source.
-   **************************/
+<script>
+/* Simple IndexedDB schema:
+   DB name: medidb_v1
+   store: medicines (keyPath auto-increment)
+   each record should include: brand, generic, api, manufacturer, code, expiry, storage, dosage, form, side_effects, source, searchText
+*/
+const DB_NAME = 'medidb_v1';
+const STORE = 'medicines';
+let db = null;
+let fuse = null;
+let lastResults = [];
 
-  let dataset = [];      // array of records
-  let fuse = null;
-  const resultsEl = document.getElementById('results');
-
-  // Sample minimal dataset (replace / upload real DB)
-  const sample = [
-    {
-      "brand": "Crocin Advance",
-      "generic": "Paracetamol + Caffeine",
-      "api": "Paracetamol 500 mg; Caffeine 65 mg",
-      "excipients": "Starch, Povidone, Magnesium stearate",
-      "storage": "Store below 25°C. Protect from moisture.",
-      "dosage": "Adults: 1-2 tablets every 4-6 hours. Max 4g/day paracetamol.",
-      "expiry": "24 months from manufacturing",
-      "side_effects": "Rare: liver dysfunction at high doses, nausea, allergic reaction",
-      "manufacturer": "GlaxoSmithKline Pharmaceuticals Ltd",
-      "code": "IN-001-CRN"
-    },
-    {
-      "brand": "Dolo 650",
-      "generic": "Paracetamol",
-      "api": "Paracetamol 650 mg",
-      "excipients": "Lactose, Maize starch, Povidone",
-      "storage": "Store at room temperature (15–30°C)",
-      "dosage": "Adults: 1 tablet (650 mg) every 4-6 hours as needed. Max 3-4g/day.",
-      "expiry": "36 months",
-      "side_effects": "Nausea, rash, rare hepatic toxicity on overdose",
-      "manufacturer": "Micro Labs Ltd",
-      "code": "IN-002-DLO"
-    },
-    {
-      "brand": "Crocin",
-      "generic": "Paracetamol",
-      "api": "Paracetamol 500 mg",
-      "excipients": "Starch, Povidone, Magnesium stearate",
-      "storage": "Keep in a cool, dry place",
-      "dosage": "Adults: 1-2 tablets every 4-6 hours. Max 4g/day of paracetamol.",
-      "expiry": "24 months",
-      "side_effects": "Allergic reactions very rare",
-      "manufacturer": "GlaxoSmithKline Pharmaceuticals Ltd",
-      "code": "IN-003-CRCN"
-    },
-    {
-      "brand": "Augmentin",
-      "generic": "Amoxicillin + Clavulanic acid",
-      "api": "Amoxicillin 500 mg; Clavulanic acid 125 mg",
-      "excipients": "Sodium starch glycolate, cellulose",
-      "storage": "Store below 25°C. Protect from light.",
-      "dosage": "Adults: 1 tablet every 8-12 hours (as prescribed). Duration per infection.",
-      "expiry": "24 months",
-      "side_effects": "Diarrhea, nausea, allergic reactions (rash)",
-      "manufacturer": "GSK / Pfizer (brands vary)",
-      "code": "IN-004-AUG"
-    }
-  ];
-
-  function buildIndex() {
-    // Use Fuse.js to index common searchable keys
-    const options = {
-      keys: [
-        { name: 'brand', weight: 0.6 },
-        { name: 'generic', weight: 0.5 },
-        { name: 'api', weight: 0.4 },
-        { name: 'manufacturer', weight: 0.2 },
-        { name: 'code', weight: 0.1 }
-      ],
-      threshold: 0.35,
-      includeScore: true,
-      useExtendedSearch: true,
-      ignoreLocation: true,
-      minMatchCharLength: 2,
-    };
-    fuse = new Fuse(dataset, options);
-  }
-
-  function renderResults(items) {
-    resultsEl.innerHTML = '';
-    if (!items || items.length === 0) {
-      resultsEl.innerHTML = '<div class="small" style="padding:8px">कोई परिणाम नहीं मिला</div>';
-      return;
-    }
-    items.forEach((it, idx) => {
-      // if coming from fuse result object, item is it.item
-      const rec = it.item ? it.item : it;
-      const div = document.createElement('div');
-      div.className = 'result-item';
-      div.innerHTML = '<div style="font-weight:700">' + escapeHtml(rec.brand || rec.generic || '—') + '</div><div class="small">' +
-                      escapeHtml((rec.generic ? rec.generic : '')) + ' &nbsp; <span class="small muted">' + (rec.manufacturer || '') + '</span></div>';
-      div.addEventListener('click', () => showDetail(rec));
-      resultsEl.appendChild(div);
-    });
-  }
-
-  function showDetail(rec) {
-    document.getElementById('detailTitle').textContent = rec.brand || rec.generic || '—';
-    document.getElementById('detailSource').textContent = 'डेटासेट: client (uploaded or sample)';
-    document.getElementById('f_brand').textContent = rec.brand || '—';
-    document.getElementById('f_generic').textContent = rec.generic || '—';
-    document.getElementById('f_api').textContent = rec.api || '—';
-    document.getElementById('f_form').textContent = rec.form || '—';
-    document.getElementById('f_dosage').textContent = rec.dosage || '—';
-    document.getElementById('f_storage').textContent = rec.storage || '—';
-    document.getElementById('f_excipients').textContent = rec.excipients || '—';
-    document.getElementById('f_side').textContent = rec.side_effects || rec.sideEffects || rec.side || '—';
-    document.getElementById('f_manuf').textContent = rec.manufacturer || '—';
-    document.getElementById('f_code').textContent = rec.code || rec.ndc || rec.ndc_code || '—';
-    document.getElementById('f_expiry').textContent = rec.expiry || rec.shelf_life || '—';
-    document.getElementById('f_json').textContent = JSON.stringify(rec, null, 2);
-  }
-
-  function escapeHtml(s) {
-    if (!s) return '';
-    return String(s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; });
-  }
-
-  // Search handler
-  document.getElementById('searchBtn').addEventListener('click', () => {
-    const q = document.getElementById('q').value.trim();
-    if (!q) {
-      alert('कृपया कोई नाम लिखें');
-      return;
-    }
-    if (!fuse) {
-      alert('डेटासेट लोड नहीं है — पहले Sample load करें या CSV/JSON upload करें।');
-      return;
-    }
-    // use fuse search
-    const raw = fuse.search(q, { limit: parseInt(document.getElementById('limitSel').value || 25) });
-    renderResults(raw);
-    if (raw.length) {
-      // auto open first
-      showDetail(raw[0].item);
-    }
-  });
-
-  // Quick load sample
-  document.getElementById('loadSample').addEventListener('click', () => {
-    dataset = sample.slice(); // copy
-    buildIndex();
-    renderResults(dataset.slice(0, parseInt(document.getElementById('limitSel').value || 25)));
-    document.getElementById('detailTitle').textContent = 'Sample dataset loaded — select a result';
-    document.getElementById('detailSource').textContent = 'डेटासेट: sample (client)';
-  });
-
-  // File upload (CSV or JSON)
-  document.getElementById('fileIn').addEventListener('change', (ev) => {
-    const f = ev.target.files[0];
-    if (!f) return;
-    const name = f.name.toLowerCase();
-    const reader = new FileReader();
-    reader.onload = function(e) {
-      try {
-        if (name.endsWith('.json')) {
-          const j = JSON.parse(e.target.result);
-          if (!Array.isArray(j)) {
-            alert('JSON फ़ाइल में array of objects होना चाहिए');
-            return;
-          }
-          dataset = j;
-          buildIndex();
-          renderResults(dataset.slice(0, parseInt(document.getElementById('limitSel').value || 25)));
-          document.getElementById('detailTitle').textContent = 'Uploaded JSON dataset loaded';
-          document.getElementById('detailSource').textContent = 'डेटासेट: uploaded JSON';
-        } else if (name.endsWith('.csv')) {
-          // parse via PapaParse
-          Papa.parse(e.target.result, {
-            header: true,
-            skipEmptyLines: true,
-            complete: function(results) {
-              dataset = results.data;
-              buildIndex();
-              renderResults(dataset.slice(0, parseInt(document.getElementById('limitSel').value || 25)));
-              document.getElementById('detailTitle').textContent = 'Uploaded CSV dataset loaded';
-              document.getElementById('detailSource').textContent = 'डेटासेट: uploaded CSV';
-            },
-            error: function(err) {
-              alert('CSV parse error: ' + err.message);
-            }
-          });
-        } else {
-          alert('सिर्फ़ .json या .csv फाइल चुनें');
-        }
-      } catch (ex) {
-        alert('फाइल पढ़ने में त्रुटि: ' + ex.message);
+function openDb() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = (e) => {
+      const idb = e.target.result;
+      if (!idb.objectStoreNames.contains(STORE)) {
+        const os = idb.createObjectStore(STORE, { keyPath: 'id', autoIncrement: true });
+        os.createIndex('searchText', 'searchText', { unique: false });
+        os.createIndex('brand', 'brand', { unique: false });
+        os.createIndex('generic', 'generic', { unique: false });
       }
     };
-    reader.readAsText(f);
+    req.onsuccess = () => { db = req.result; res(db); };
+    req.onerror = (e) => rej(e);
   });
+}
 
-  // load sample automatically on first open for convenience
-  (function init() {
-    dataset = sample.slice();
-    buildIndex();
-    renderResults(dataset.slice(0, parseInt(document.getElementById('limitSel').value || 25)));
-  })();
+function addRecords(records, sourceLabel='imported') {
+  return new Promise((res, rej) => {
+    if (!db) return rej(new Error('DB not opened'));
+    const tx = db.transaction(STORE, 'readwrite');
+    const os = tx.objectStore(STORE);
+    let count = 0;
+    for (const r of records) {
+      const normalized = normalizeRecord(r);
+      normalized.source = normalized.source || sourceLabel;
+      normalized.searchText = buildSearchText(normalized);
+      os.add(normalized);
+      count++;
+    }
+    tx.oncomplete = () => res(count);
+    tx.onerror = (e) => rej(e);
+  });
+}
 
-  </script>
+function normalizeRecord(r) {
+  // keep only typical fields and normalize types
+  return {
+    brand: r.brand || r.Brand || r.name || r.brand_name || '',
+    generic: r.generic || r.Generic || r.salt || '',
+    api: r.api || r.API || r.active_ingredient || '',
+    dosage: r.dosage || r.Dosage || r.strength || '',
+    form: r.form || r.Form || '',
+    storage: r.storage || r.Storage || '',
+    expiry: r.expiry || r.Expiry || r.shelf_life || '',
+    side_effects: r.side_effects || r.sideEffects || r.side_effect || '',
+    manufacturer: r.manufacturer || r.Manufacturer || r.mfg || '',
+    code: r.code || r.code_no || r.ndc || r.id || '',
+    source: r.source || '',
+    raw: r // keep original for debugging
+  };
+}
+
+function buildSearchText(r) {
+  return [r.brand, r.generic, r.api, r.manufacturer, r.code, r.form, r.dosage].filter(Boolean).join(' | ').toLowerCase();
+}
+
+async function importSelectedFiles(files) {
+  if (!files || files.length===0) return;
+  document.getElementById('status').textContent = 'Status: importing files...';
+  await openDb();
+  let total = 0;
+  for (const f of files) {
+    const txt = await f.text();
+    try {
+      if (f.name.toLowerCase().endsWith('.json')) {
+        const parsed = JSON.parse(txt);
+        if (Array.isArray(parsed)) {
+          const added = await addRecords(parsed, f.name);
+          total += added;
+        } else if (parsed.records && Array.isArray(parsed.records)) {
+          const added = await addRecords(parsed.records, f.name);
+          total += added;
+        } else {
+          // single object
+          const added = await addRecords([parsed], f.name);
+          total += added;
+        }
+      } else if (f.name.toLowerCase().endsWith('.csv')) {
+        const parsed = Papa.parse(txt, { header: true, skipEmptyLines: true });
+        if (parsed && parsed.data) {
+          const added = await addRecords(parsed.data, f.name);
+          total += added;
+        }
+      } else {
+        console.warn('ignored', f.name);
+      }
+      document.getElementById('status').textContent = `Imported so far: ${total} records... (processing next file)`;
+      // allow UI to update between big files
+      await new Promise(r=>setTimeout(r,50));
+    } catch (ex) {
+      console.error('import err for', f.name, ex);
+      alert('Error importing ' + f.name + ': ' + ex.message);
+    }
+  }
+  document.getElementById('status').textContent = `Import complete. Total added: ${total}`;
+}
+
+function clearDb() {
+  return new Promise(async (res, rej) => {
+    await openDb();
+    const tx = db.transaction(STORE, 'readwrite');
+    const os = tx.objectStore(STORE);
+    const req = os.clear();
+    req.onsuccess = () => res();
+    req.onerror = (e) => rej(e);
+  });
+}
+
+function searchIndexedDB(q, limit=25) {
+  // Simple substring search on precomputed searchText field.
+  // For faster fuzzy search, we could build a Fuse index on a small subset or on brand/generic fields once loaded.
+  return new Promise(async (res, rej) => {
+    q = q.trim().toLowerCase();
+    if (!q) return res([]);
+    await openDb();
+    const tx = db.transaction(STORE, 'readonly');
+    const os = tx.objectStore(STORE);
+    const req = os.openCursor();
+    const out = [];
+    req.onsuccess = (e) => {
+      const cur = e.target.result;
+      if (!cur) { res(out.slice(0, limit)); return; }
+      const rec = cur.value;
+      if (rec.searchText && rec.searchText.indexOf(q) !== -1) {
+        out.push(rec);
+      }
+      if (out.length >= limit) { res(out.slice(0, limit)); return; }
+      cur.continue();
+    };
+    req.onerror = (e) => rej(e);
+  });
+}
+
+function renderResults(items) {
+  const container = document.getElementById('results');
+  container.innerHTML = '';
+  if (!items || items.length===0) {
+    container.innerHTML = '<div class="small" style="padding:8px">No results</div>';
+    return;
+  }
+  items.forEach(it => {
+    const div = document.createElement('div');
+    div.className = 'result-item';
+    div.innerHTML = `<div style="font-weight:700">${escapeHtml(it.brand || it.generic || '—')}</div>
+                     <div class="small">${escapeHtml(it.generic||'')} · ${escapeHtml(it.manufacturer||'')}</div>`;
+    div.addEventListener('click', () => showDetail(it));
+    container.appendChild(div);
+  });
+}
+
+function showDetail(rec) {
+  document.getElementById('detailTitle').textContent = rec.brand || rec.generic || '—';
+  document.getElementById('detailSource').textContent = 'Dataset: ' + (rec.source || 'local');
+  document.getElementById('f_brand').textContent = rec.brand || '—';
+  document.getElementById('f_generic').textContent = rec.generic || '—';
+  document.getElementById('f_api').textContent = rec.api || '—';
+  document.getElementById('f_form').textContent = rec.form || '—';
+  document.getElementById('f_dosage').textContent = rec.dosage || '—';
+  document.getElementById('f_storage').textContent = rec.storage || '—';
+  document.getElementById('f_manuf').textContent = rec.manufacturer || '—';
+  document.getElementById('f_code').textContent = rec.code || '—';
+  document.getElementById('f_expiry').textContent = rec.expiry || '—';
+  document.getElementById('f_json').textContent = JSON.stringify(rec.raw || rec, null, 2);
+}
+
+function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+document.getElementById('importBtn').addEventListener('click', async () => {
+  const files = document.getElementById('fileIn').files;
+  if (!files || files.length===0) { alert('Please choose one or more CSV/JSON files to import.'); return; }
+  try {
+    await importSelectedFiles(files);
+  } catch (ex) {
+    alert('Import failed: ' + ex.message);
+  }
+});
+
+document.getElementById('clearDbBtn').addEventListener('click', async () => {
+  if (!confirm('Delete all data in local DB? This cannot be undone.')) return;
+  await clearDb();
+  document.getElementById('status').textContent = 'DB cleared.';
+  document.getElementById('results').innerHTML = '';
+  document.getElementById('f_json').textContent = '—';
+});
+
+document.getElementById('searchBtn').addEventListener('click', async () => {
+  const q = document.getElementById('q').value || '';
+  if (!q.trim()) { alert('Please enter search text'); return; }
+  document.getElementById('status').textContent = 'Searching...';
+  const lim = parseInt(document.getElementById('limitSel').value || 25);
+  const items = await searchIndexedDB(q, lim);
+  renderResults(items);
+  document.getElementById('status').textContent = `Search results: ${items.length}`;
+});
+
+(function initSample() {
+  // small sample to demonstrate UI (not official)
+  const sample = [
+    {"brand":"Dolo 650","generic":"Paracetamol","api":"Paracetamol 650 mg","manufacturer":"Micro Labs Ltd","dosage":"1 tablet every 4-6 hours","code":"IN-002-DLO","source":"sample"},
+    {"brand":"Augmentin 625","generic":"Amoxicillin + Clavulanic acid","api":"Amox 500 mg + Clav 125 mg","manufacturer":"Various","dosage":"1 tablet every 8-12 hours","code":"IN-004-AUG","source":"sample"}
+  ];
+  // put sample into DB if empty
+  openDb().then(() => {
+    const tx = db.transaction(STORE,'readonly'); const os = tx.objectStore(STORE); const cntReq = os.count();
+    cntReq.onsuccess = () => { if (cntReq.result === 0) { addRecords(sample,'sample').then(c=>document.getElementById('status').textContent='Sample loaded. Import your files to add more.'); } else { document.getElementById('status').textContent='Ready.'; } };
+  });
+})();
+</script>
 </body>
 </html>
